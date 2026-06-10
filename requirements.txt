@@ -1,0 +1,9 @@
+# 学习制导律训练工程依赖
+# 安装: pip install -r requirements.txt && pip install -e .
+torch>=1.13
+numpy>=1.21
+gymnasium>=0.28
+pyyaml>=5.4
+matplotlib>=3.5
+tensorboard>=2.10
+pytest>=7.0
