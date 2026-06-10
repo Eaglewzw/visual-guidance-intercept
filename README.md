@@ -98,9 +98,32 @@ python -m guidance_rl.eval.eval_gym --policy checkpoints/rl_policy.pt --episodes
 python -m guidance_rl.eval.plot_results --csv results/png.csv results/bc.csv results/rl.csv \
     --labels PNG BC RL --traj results/rl_traj.npz --out results/plots
 
-# 5) 导出部署
+# 5) 导出部署（阶段一）
 python -m guidance_rl.export --ckpt checkpoints/rl_policy.pt \
     --out /home/verser/ros2_ws/src/uav_rl_guidance/models/policy.pt
+
+# ---------- 阶段二 ----------
+# 6) BC 数据采集（500 集，PNG 老师闭环，JPEG 图像 + npz 索引）
+python -m guidance_rl.train.collect_bc_data_v2 --episodes 500 --out data/bc_v2
+
+# 7) BC 训练（动作 MSE + 辅助 bbox/conf 联合优化，MobileNetV3 预训练）
+python -m guidance_rl.train.train_bc_v2 --data data/bc_v2 \
+    --out checkpoints/bc_policy_v2.pt
+
+# 8) PPO 微调（8 envs × 128 steps，BC 热启动）
+python -m guidance_rl.train.train_ppo_v2 --bc-init checkpoints/bc_policy_v2.pt \
+    --out checkpoints/rl_policy_v2.pt --logdir runs/ppo_v2
+
+# 9) 三方对比（PNG vs V1 vs V2 × 4 运动模式）
+python -m guidance_rl.eval.eval_gym --policy png --episodes 200 --out results/png.csv
+python -m guidance_rl.eval.eval_gym --policy checkpoints/rl_policy.pt --episodes 200 --out results/rl_v1.csv
+# V2 评估：与 V1/PNG 三方对比（同环境，同指标口径）
+python -m guidance_rl.eval.eval_v2 --policy png --episodes 200 --out results/png_v2_env.csv
+python -m guidance_rl.eval.eval_v2 --policy checkpoints/rl_policy_v2.pt --episodes 200 --out results/rl_v2.csv
+
+# 10) 导出部署（阶段二）
+python -m guidance_rl.export_v2 --ckpt checkpoints/rl_policy_v2.pt \
+    --out /home/verser/ros2_ws/src/uav_rl_guidance/models/policy_v2.pt
 ```
 
 **预期基线（PNG 老师在 Gym 内，30 集/模式）**：
@@ -111,8 +134,22 @@ RL 目标：circle/random_walk 命中率超过 PNG ≥10 个百分点，其余�
 ## 5. Gazebo 部署与 A/B 对比
 
 见 `guidance_rl/eval/batch_gazebo_eval.md`。要点：
-- `ros2 launch uav_rl_guidance rl_guidance.launch.py` 与原 vpng 实验流程完全一致
-- `fallback_png:=true` 用同一节点跑 PNG 基线（其余条件全同）
+
+**阶段一部署：**
+```bash
+ros2 launch uav_rl_guidance rl_guidance.launch.py              # RL 策略 (V1)
+ros2 launch uav_rl_guidance rl_guidance.launch.py fallback_png:=true  # PNG 基线
+```
+
+**阶段二部署：**
+```bash
+ros2 launch uav_rl_guidance rl_guidance.launch.py model_version:=v2   # CNN+GRU (V2)
+ros2 launch uav_rl_guidance rl_guidance.launch.py model_version:=v1   # V1 基线对比
+ros2 launch uav_rl_guidance rl_guidance.launch.py fallback_png:=true  # PNG 基线
+```
+
+- 与原 vpng 实验流程完全一致：`run_swarm.sh` → `uav_target_sim` → `uav_vision_dectect` → 本节点
+- V2 额外订阅 `/camera/image` 做 288×288 搜索区域裁剪（复用 LightTrack `get_search_bbox` 逻辑）
 - 首次部署前用 `record_gazebo_episode.py` 录数据校准 `dynamics.tau_v`
 - 策略异常时 watchdog 自动回退 PNG 并告警（连续 20 帧锁存）
 

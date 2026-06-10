@@ -49,7 +49,7 @@
 | **训练极快** | 轻量 Gym（运动学质点模型+针孔投影+检测噪声），~11k steps/s，百万步几分钟 |
 | **基线现成** | PNG 老师移植自你的 C++（逐行对齐，26 个 pytest 锁），BC 热启动让 RL 从可用起步 |
 | **论文价值** | "学习制导律 vs 经典 PNG 对机动目标"是干净的研究命题，消融实验简单（BC/PPO/无特权Critic）|
-| **工程安全** | PNG 全程在回路（BC 老师→watchdog 兜底），策略异常自动回退 |
+| **工程安全** | PNG <br/>全程在回路（BC 老师→watchdog 兜底），策略异常自动回退 |
 
 ### 技术方案（已实现）
 
@@ -179,6 +179,7 @@ YOLO 仍做全局目标捕获（SEARCHING→INTERCEPT 切换），但 INTERCEPT 
 | BC 数据采集（JPEG + npz 索引）| `train/collect_bc_data_v2.py` | ✅ 5 集测试通过 |
 | BC 训练（动作 MSE + 辅助 bbox/conf）| `train/train_bc_v2.py` | ✅ 2 epoch loss 下降 |
 | PPO 微调（8 envs × 128 steps）| `train/train_ppo_v2.py` | ✅ 待完整训练 |
+| Gym 评估（V2 策略直接评估）| `eval/eval_v2.py` | ✅ |
 | TorchScript 导出 + 部署 runtime | `export_v2.py` + `policy_runtime_v2.py` | ✅ watchdog 验证 |
 | ROS2 节点 V1/V2 切换 | `rl_guidance_node.py` + `model_version` 参数 | ✅ 编译通过 |
 
