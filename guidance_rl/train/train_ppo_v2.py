@@ -178,14 +178,17 @@ def main():
         old_lp_flat = buf.logprob.transpose(0, 1).contiguous()
         adv_norm = (adv_flat - adv_flat.mean()) / (adv_flat.std() + 1e-8)
 
+        # 累积 minibatch 统计
+        mb_pi_loss = mb_vf_loss = mb_ent = 0.0
+        mb_kl = mb_clip = 0.0
+
         for mb_start in range(0, N, mb_size):
             mb_end = min(mb_start + mb_size, N)
             mb_slice = slice(mb_start, mb_end)
 
-            # 搬运此 minibatch 的图像到 GPU（[mb, T, 3, H, W]）
             imgs_mb = torch.from_numpy(
                 buf.images[:, mb_slice].transpose(1, 0, 2, 3, 4).copy()
-            ).to(device)                                     # [mb, T, 3, 288, 288]
+            ).to(device)
 
             ego_mb = buf.ego[:, mb_slice].transpose(0, 1).contiguous()
             gt_obs_mb = buf.gt_obs[:, mb_slice].transpose(0, 1).contiguous()
@@ -197,7 +200,6 @@ def main():
             ret_mb = ret_flat[mb_slice]
             h0_mb = buf.h_init[:, mb_slice]
 
-            # ---- Actor 序列前向 ----
             mean_mb, _ = model.actor.forward_masked(
                 imgs_mb, ego_mb, done_mb, h0_mb)
 
@@ -213,7 +215,6 @@ def main():
             surr2 = torch.clamp(ratio_mb, 1 - p.clip_eps, 1 + p.clip_eps) * adv_mb
             pi_loss = -torch.min(surr1, surr2).mean()
 
-            # ---- Critic ----
             value_pred = model.critic(gt_obs_mb, priv_mb)
             vf_loss = 0.5 * (value_pred - ret_mb).pow(2).mean()
 
@@ -225,21 +226,25 @@ def main():
             torch.nn.utils.clip_grad_norm_(model.parameters(), p.max_grad_norm)
             ppo.opt.step()
 
-            # 释放本批图像
+            with torch.no_grad():
+                mb_kl += ((ratio_mb - 1) - ratio_mb.log()).mean().item()
+                mb_clip += ((ratio_mb - 1).abs() > p.clip_eps).float().mean().item()
+            mb_pi_loss += pi_loss.item()
+            mb_vf_loss += vf_loss.item()
+            mb_ent += ent.item()
+
             del imgs_mb
 
-        # 更新后清理 rollout buffer GPU 引用
+        n_mb = (N + mb_size - 1) // mb_size
+        pi_loss_val = mb_pi_loss / n_mb
+        vf_loss_val = mb_vf_loss / n_mb
+        ent_val = mb_ent / n_mb
+        approx_kl = mb_kl / n_mb
+        clip_frac = mb_clip / n_mb
+
         del buf
         if update % 5 == 0:
             torch.cuda.empty_cache()
-
-        with torch.no_grad():
-            approx_kl = ((ratio - 1) - ratio.log()).mean().item()
-            clip_frac = ((ratio - 1).abs() > p.clip_eps).float().mean().item()
-
-        with torch.no_grad():
-            approx_kl = ((ratio_mb - 1) - ratio_mb.log()).mean().item()
-            clip_frac = ((ratio_mb - 1).abs() > p.clip_eps).float().mean().item()
 
         h = h.detach()
 
@@ -252,9 +257,9 @@ def main():
 
         writer.add_scalar("rollout/hit_rate", hit_rate, global_step)
         writer.add_scalar("rollout/ep_reward", mean_rew, global_step)
-        writer.add_scalar("train/pi_loss", pi_loss.item(), global_step)
-        writer.add_scalar("train/vf_loss", vf_loss.item(), global_step)
-        writer.add_scalar("train/entropy", ent.item(), global_step)
+        writer.add_scalar("train/pi_loss", pi_loss_val, global_step)
+        writer.add_scalar("train/vf_loss", vf_loss_val, global_step)
+        writer.add_scalar("train/entropy", ent_val, global_step)
         writer.add_scalar("train/approx_kl", approx_kl, global_step)
         writer.add_scalar("train/clip_frac", clip_frac, global_step)
         writer.add_scalar("train/log_std", model.actor.log_std.mean().item(), global_step)
