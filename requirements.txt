@@ -7,3 +7,4 @@ pyyaml>=5.4
 matplotlib>=3.5
 tensorboard>=2.10
 pytest>=7.0
+opencv-python>=4.5
