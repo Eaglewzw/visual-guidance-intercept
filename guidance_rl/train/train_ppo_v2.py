@@ -89,16 +89,16 @@ def main():
     cfg["ppo"]["num_envs"] = args.num_envs
     cfg["ppo"]["rollout_steps"] = args.rollout_steps
     p = cfg.ppo
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+    device = args.device
     if device == "cuda":
         free, total = torch.cuda.mem_get_info()
         used = (total - free) / 1024**3
         print(f"GPU 显存: {used:.1f}/{total/1024**3:.1f} GiB 已用, "
               f"{free/1024**3:.1f} GiB 空闲")
-        if free < 2 * 1024**3:
-            print("⚠️  显存不足 2 GiB，建议先清理其他进程 (nvidia-smi) 或减少 --num-envs")
-    torch.manual_seed(args.seed)
-    np.random.seed(args.seed)
-    device = args.device
+        if free < 1.5 * 1024**3:
+            print("⚠️  显存紧张，建议先清理其他进程 (nvidia-smi) 或 --num-envs 4")
 
     env = VecInterceptEnvV2(p.num_envs, cfg, mode=args.mode, seed=args.seed)
     model = ActorCriticV2(cfg.model, pretrained_cnn=True).to(device)
