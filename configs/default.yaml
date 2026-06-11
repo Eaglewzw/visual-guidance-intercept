@@ -150,5 +150,5 @@ v2:
   # 无人机纹理图片路径（PNG 透明背景俯视图最佳）
   # 设为空字符串 "" 则仅用几何图形（cross/diamond/quad）
   # 设为路径则按 sprite_prob 概率使用真实纹理
-  sprite_path: "/home/verser/Pictures/data.jpg"
+  sprite_path: "/home/verser/Pictures/data.png"
   sprite_prob: 0.9             # 90% 纹理 + 10% 几何混合（防过拟合单一形状）

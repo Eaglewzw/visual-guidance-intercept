@@ -282,7 +282,7 @@ class UAVRenderer:
         """将无人机纹理缩放/旋转/颜色抖动后贴到 img 上"""
         sprite = self.sprite
 
-        # 1) 缩放：纹理边长 = bbox 较大边 × 1.3（旋翼比机身大）
+        # 1) 缩放
         size = int(max(w, h) * 1.3)
         size = max(size, 6)
         ratio = size / max(sprite.width, sprite.height)
@@ -290,28 +290,45 @@ class UAVRenderer:
         new_h = max(1, int(sprite.height * ratio))
         scaled = sprite.resize((new_w, new_h), Image.BILINEAR)
 
-        # 2) 旋转（随机 ±35°，模拟目标朝向未知）
+        # 2) 旋转
         if abs(self.sprite_rotation) > 0.5:
             scaled = scaled.rotate(self.sprite_rotation, resample=Image.BILINEAR,
                                    expand=True, fillcolor=(0, 0, 0, 0))
 
-        # 3) 颜色抖动 (HSV)
-        if self.sprite_hue_shift != 0 or abs(self.sprite_saturation - 1.0) > 0.01:
-            hsv = scaled.convert("HSV")
+        # ---- 保存 alpha mask（HSV 转换会丢失 alpha）----
+        if self.sprite_has_alpha and scaled.mode == "RGBA":
+            alpha_mask = np.array(scaled)[:, :, 3].copy()
+        else:
+            alpha_mask = None
+
+        # 3) 颜色抖动 (HSV) —— 在 RGB 副本上进行，保留原 RGBA
+        rgb_copy = scaled.convert("RGB")
+        need_color = (abs(self.sprite_hue_shift) > 0.001
+                      or abs(self.sprite_saturation - 1.0) > 0.01)
+        if need_color:
+            hsv = rgb_copy.convert("HSV")
             arr = np.array(hsv, dtype=np.float32)
             arr[:, :, 0] = (arr[:, :, 0] / 255.0 + self.sprite_hue_shift) % 1.0
             arr[:, :, 0] *= 255.0
             arr[:, :, 1] = np.clip(arr[:, :, 1] * self.sprite_saturation, 0, 255)
-            scaled = Image.fromarray(arr.astype(np.uint8), "HSV").convert("RGBA")
+            rgb_copy = Image.fromarray(arr.astype(np.uint8), "HSV").convert("RGB")
 
-        # 4) 亮度/对比度
-        scaled = ImageEnhance.Brightness(scaled).enhance(self.sprite_brightness)
-        scaled = ImageEnhance.Contrast(scaled).enhance(self.sprite_contrast)
+        # 4) 亮度/对比度（在 RGB 上操作）
+        rgb_copy = ImageEnhance.Brightness(rgb_copy).enhance(self.sprite_brightness)
+        rgb_copy = ImageEnhance.Contrast(rgb_copy).enhance(self.sprite_contrast)
 
-        # 5) 贴到背景
+        # 5) 恢复 alpha 通道
+        if alpha_mask is not None:
+            arr_rgb = np.array(rgb_copy)
+            rgba = np.dstack([arr_rgb, alpha_mask])
+            scaled = Image.fromarray(rgba.astype(np.uint8), "RGBA")
+        else:
+            scaled = rgb_copy
+
+        # 6) 贴到背景
         px = int(cx - scaled.width // 2)
         py = int(cy - scaled.height // 2)
-        if self.sprite_has_alpha:
+        if alpha_mask is not None:
             img_rgba = img.convert("RGBA")
             img_rgba.paste(scaled, (px, py), scaled)
             return img_rgba.convert("RGB")
