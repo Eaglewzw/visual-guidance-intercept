@@ -86,10 +86,16 @@ def main():
     args = parser.parse_args()
 
     cfg = load_config(args.config)
-    # 覆盖为图像友好的配置
     cfg["ppo"]["num_envs"] = args.num_envs
     cfg["ppo"]["rollout_steps"] = args.rollout_steps
     p = cfg.ppo
+    if device == "cuda":
+        free, total = torch.cuda.mem_get_info()
+        used = (total - free) / 1024**3
+        print(f"GPU 显存: {used:.1f}/{total/1024**3:.1f} GiB 已用, "
+              f"{free/1024**3:.1f} GiB 空闲")
+        if free < 2 * 1024**3:
+            print("⚠️  显存不足 2 GiB，建议先清理其他进程 (nvidia-smi) 或减少 --num-envs")
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
     device = args.device
@@ -103,6 +109,8 @@ def main():
         print(f"BC 热启动: {args.bc_init} (loss={ckpt.get('bc_loss'):.5f})")
         if missing.missing_keys:
             print(f"  未初始化: {len(missing.missing_keys)} 键（正常）")
+        del ckpt
+        torch.cuda.empty_cache()  # 释放 BC checkpoint 加载残留
 
     ppo = PPO(model, p, device)
     writer = SummaryWriter(args.logdir)
@@ -160,59 +168,78 @@ def main():
             last_value = model.critic(gt_obs, priv)
         buf.compute_gae(last_value, p.gamma, p.gae_lambda)
 
-        # ---------------- update (简化版：整段 BPTT，不做 minibatch) ----------------
-        # 图像量大，整批更新避免额外 CPU-GPU 搬运
-        images_t = torch.from_numpy(buf.images[:, :].reshape(-1, 3, CROP_SIZE, CROP_SIZE)).to(device)
-        ego_t = buf.ego.view(-1, EGO_DIM)
-        gt_obs_t = buf.gt_obs.view(-1, buf.gt_obs.shape[-1])
-        priv_t = buf.priv.view(-1, buf.priv.shape[-1])
-
-        # 分配每步：action/adv/ret → [T,N,...] → [N,T,...]（Actor 序列）
+        # ---------------- update (minibatch 更新，避免 OOM) ----------------
         N, T = p.num_envs, p.rollout_steps
-        images_seq = buf.images.transpose(1, 0, 2, 3, 4)  # [N, T, 3, 288, 288]
-        images_seq = torch.from_numpy(images_seq.copy()).to(device)
-        ego_seq = buf.ego.transpose(0, 1).contiguous()
-        gt_obs_seq = buf.gt_obs.transpose(0, 1).contiguous()
-        priv_seq = buf.priv.transpose(0, 1).contiguous()
-        act_seq = buf.act.transpose(0, 1).contiguous()
-        done_seq = buf.done.transpose(0, 1).contiguous()
-        old_logprob_seq = buf.logprob.transpose(0, 1).contiguous()
-        adv_seq = buf.adv.transpose(0, 1).contiguous()
-        ret_seq = buf.ret.transpose(0, 1).contiguous()
 
-        # 优势归一化
-        adv = (adv_seq - adv_seq.mean()) / (adv_seq.std() + 1e-8)
+        # 按 env 维切 minibatch：每批只搬运 mb_envs 个环境的图像到 GPU
+        mb_size = max(1, N // p.num_minibatches)
+        adv_flat = buf.adv.transpose(0, 1).contiguous()       # [N, T]
+        ret_flat = buf.ret.transpose(0, 1).contiguous()
+        old_lp_flat = buf.logprob.transpose(0, 1).contiguous()
+        adv_norm = (adv_flat - adv_flat.mean()) / (adv_flat.std() + 1e-8)
 
-        # Actor 更新
-        h0_seq = buf.h_init
-        mean, _ = model.actor.forward_masked(
-            images_seq, ego_seq, done_seq, h0_seq)
-        log_std = model.actor.log_std.clamp(p.log_std_min, p.log_std_max)
-        std = log_std.exp().unsqueeze(0).unsqueeze(0).expand(N, T, -1)
-        dist = torch.distributions.Normal(mean, std)
-        logprob = dist.log_prob(act_seq).sum(-1)
-        entropy = dist.entropy().sum(-1)
+        for mb_start in range(0, N, mb_size):
+            mb_end = min(mb_start + mb_size, N)
+            mb_slice = slice(mb_start, mb_end)
 
-        ratio = (logprob - old_logprob_seq).exp()
-        surr1 = ratio * adv
-        surr2 = torch.clamp(ratio, 1 - p.clip_eps, 1 + p.clip_eps) * adv
-        pi_loss = -torch.min(surr1, surr2).mean()
+            # 搬运此 minibatch 的图像到 GPU（[mb, T, 3, H, W]）
+            imgs_mb = torch.from_numpy(
+                buf.images[:, mb_slice].transpose(1, 0, 2, 3, 4).copy()
+            ).to(device)                                     # [mb, T, 3, 288, 288]
 
-        # Critic 更新
-        value_pred = model.critic(gt_obs_seq, priv_seq)
-        vf_loss = 0.5 * (value_pred - ret_seq).pow(2).mean()
+            ego_mb = buf.ego[:, mb_slice].transpose(0, 1).contiguous()
+            gt_obs_mb = buf.gt_obs[:, mb_slice].transpose(0, 1).contiguous()
+            priv_mb = buf.priv[:, mb_slice].transpose(0, 1).contiguous()
+            act_mb = buf.act[:, mb_slice].transpose(0, 1).contiguous()
+            done_mb = buf.done[:, mb_slice].transpose(0, 1).contiguous()
+            old_lp_mb = old_lp_flat[mb_slice]
+            adv_mb = adv_norm[mb_slice]
+            ret_mb = ret_flat[mb_slice]
+            h0_mb = buf.h_init[:, mb_slice]
 
-        ent = entropy.mean()
-        loss = pi_loss + p.vf_coef * vf_loss - p.ent_coef * ent
+            # ---- Actor 序列前向 ----
+            mean_mb, _ = model.actor.forward_masked(
+                imgs_mb, ego_mb, done_mb, h0_mb)
 
-        ppo.opt.zero_grad()
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), p.max_grad_norm)
-        ppo.opt.step()
+            log_std = model.actor.log_std.clamp(p.log_std_min, p.log_std_max)
+            std = log_std.exp().unsqueeze(0).unsqueeze(0).expand(
+                mb_end - mb_start, T, -1)
+            dist = torch.distributions.Normal(mean_mb, std)
+            logprob_mb = dist.log_prob(act_mb).sum(-1)
+            entropy_mb = dist.entropy().sum(-1)
+
+            ratio_mb = (logprob_mb - old_lp_mb).exp()
+            surr1 = ratio_mb * adv_mb
+            surr2 = torch.clamp(ratio_mb, 1 - p.clip_eps, 1 + p.clip_eps) * adv_mb
+            pi_loss = -torch.min(surr1, surr2).mean()
+
+            # ---- Critic ----
+            value_pred = model.critic(gt_obs_mb, priv_mb)
+            vf_loss = 0.5 * (value_pred - ret_mb).pow(2).mean()
+
+            ent = entropy_mb.mean()
+            loss = pi_loss + p.vf_coef * vf_loss - p.ent_coef * ent
+
+            ppo.opt.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), p.max_grad_norm)
+            ppo.opt.step()
+
+            # 释放本批图像
+            del imgs_mb
+
+        # 更新后清理 rollout buffer GPU 引用
+        del buf
+        if update % 5 == 0:
+            torch.cuda.empty_cache()
 
         with torch.no_grad():
             approx_kl = ((ratio - 1) - ratio.log()).mean().item()
             clip_frac = ((ratio - 1).abs() > p.clip_eps).float().mean().item()
+
+        with torch.no_grad():
+            approx_kl = ((ratio_mb - 1) - ratio_mb.log()).mean().item()
+            clip_frac = ((ratio_mb - 1).abs() > p.clip_eps).float().mean().item()
 
         h = h.detach()
 
