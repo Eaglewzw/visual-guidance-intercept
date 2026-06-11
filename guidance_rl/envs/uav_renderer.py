@@ -43,8 +43,23 @@ class UAVRenderer:
         self.sprite = None
         self.sprite_prob = sprite_prob
         if sprite_path and os.path.exists(sprite_path):
-            self.sprite = Image.open(sprite_path).convert("RGBA")
-            self.sprite_has_alpha = self.sprite.mode == "RGBA"
+            raw = Image.open(sprite_path)
+            if raw.mode == "RGBA":
+                self.sprite = raw
+                self.sprite_has_alpha = True
+            else:
+                # JPG 白底 → 把接近白色的像素变透明
+                self.sprite = self._remove_white_bg(raw.convert("RGBA"))
+                self.sprite_has_alpha = True
+
+    @staticmethod
+    def _remove_white_bg(rgba: Image.Image, threshold: int = 230):
+        """JPG 白底转透明：亮度 > threshold 的像素 alpha 设为 0"""
+        arr = np.array(rgba)
+        gray = arr[:, :, :3].mean(axis=2)
+        mask = gray > threshold
+        arr[mask, 3] = 0
+        return Image.fromarray(arr, "RGBA")
 
     # ------------------------------------------------------------------
     def reset(self):
