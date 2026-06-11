@@ -60,7 +60,11 @@ class InterceptEnvV2(gym.Env):
         self.rw = c.env.reward
 
         self.dynamics = InterceptorDynamics(c.dynamics)
-        self.renderer = UAVRenderer(c, self.rng)
+        spr = c.get("v2", {}).get("sprite_path", "")
+        spr_prob = c.get("v2", {}).get("sprite_prob", 0.8)
+        self.renderer = UAVRenderer(c, self.rng,
+                                     sprite_path=spr or None,
+                                     sprite_prob=spr_prob)
         self.fb = FeatureBuilder(c.camera.focal_length,
                                  c.camera.image_width, c.camera.image_height)
         self.teacher = PNGTeacher.from_config(c)

@@ -15,23 +15,36 @@
     部署时可直接用 uav_vision_dectect 的 crop 逻辑替换
 """
 import math
-from io import BytesIO
+import os
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter, ImageEnhance, ImageOps
 
 from ..geometry import project_to_pixel
 
 
 class UAVRenderer:
-    """每集调用 reset() 随机化外观；每步调用 render() 生成 288×288 搜索区域"""
+    """搜索区域 2D 精灵渲染器。支持纹理模式（真实无人机图片）和几何模式。
 
-    def __init__(self, cfg, rng: np.random.Generator):
+    sprite_path: 无人机俯视纹理（PNG 透明背景最佳，JPG 也行）。
+                 设为 None 则仅用几何图形。
+    sprite_prob: 每集使用纹理模式的概率（0-1），剩余概率用几何图形。
+                 设为 1.0 则 100% 纹理，0.5 则混合。
+    """
+
+    def __init__(self, cfg, rng: np.random.Generator,
+                 sprite_path: str = None, sprite_prob: float = 0.8):
         self.cfg = cfg
         self.rng = rng
-        # 裁剪尺寸与 LightTrack 搜索区域一致
         self.crop_size = cfg.camera.get("crop_size", 288)
         self.half = self.crop_size // 2
+
+        # 加载无人机纹理
+        self.sprite = None
+        self.sprite_prob = sprite_prob
+        if sprite_path and os.path.exists(sprite_path):
+            self.sprite = Image.open(sprite_path).convert("RGBA")
+            self.sprite_has_alpha = self.sprite.mode == "RGBA"
 
     # ------------------------------------------------------------------
     def reset(self):
@@ -48,7 +61,18 @@ class UAVRenderer:
 
         # -- 无人机外观 --
         self.drone_color = tuple(rng.integers(30, 256, 3).tolist())
-        self.drone_shape = rng.choice(["cross", "diamond", "quad"], p=[0.4, 0.4, 0.2])
+        # 纹理模式优先（如果有 sprite + 概率命中）
+        if self.sprite is not None and rng.random() < self.sprite_prob:
+            self.drone_shape = "sprite"
+            # 纹理颜色抖动范围
+            self.sprite_hue_shift = rng.uniform(-0.08, 0.08)
+            self.sprite_saturation = rng.uniform(0.6, 1.4)
+            self.sprite_brightness = rng.uniform(0.7, 1.3)
+            self.sprite_contrast = rng.uniform(0.7, 1.3)
+            self.sprite_rotation = rng.uniform(-35, 35)  # 度
+        else:
+            self.drone_shape = rng.choice(["cross", "diamond", "quad"],
+                                          p=[0.4, 0.4, 0.2])
         self.drone_scale_jitter = rng.uniform(0.85, 1.15)
 
         # -- 传感器退化 --
@@ -177,7 +201,10 @@ class UAVRenderer:
     # ------------------------------------------------------------------
     def _render_drone(self, img: Image.Image, cx: float, cy: float,
                       w: float, h: float) -> Image.Image:
-        """在 img 上绘制 UAV 形状，支持亚像素中心"""
+        """在 img 上绘制 UAV 形状，支持亚像素中心。sprite 模式使用真实纹理"""
+        if self.drone_shape == "sprite" and self.sprite is not None:
+            return self._render_sprite(img, cx, cy, w, h)
+
         draw = ImageDraw.Draw(img)
         s = max(w, h)  # 特征尺度
         cx_i, cy_i = int(round(cx)), int(round(cy))
@@ -231,3 +258,48 @@ class UAVRenderer:
                              width=max(1, int(s * 0.02)))
 
         return img
+
+    # ------------------------------------------------------------------
+    #  纹理精灵渲染（真实无人机图片）
+    # ------------------------------------------------------------------
+    def _render_sprite(self, img: Image.Image, cx: float, cy: float,
+                       w: float, h: float) -> Image.Image:
+        """将无人机纹理缩放/旋转/颜色抖动后贴到 img 上"""
+        sprite = self.sprite
+
+        # 1) 缩放：纹理边长 = bbox 较大边 × 1.3（旋翼比机身大）
+        size = int(max(w, h) * 1.3)
+        size = max(size, 6)
+        ratio = size / max(sprite.width, sprite.height)
+        new_w = max(1, int(sprite.width * ratio))
+        new_h = max(1, int(sprite.height * ratio))
+        scaled = sprite.resize((new_w, new_h), Image.BILINEAR)
+
+        # 2) 旋转（随机 ±35°，模拟目标朝向未知）
+        if abs(self.sprite_rotation) > 0.5:
+            scaled = scaled.rotate(self.sprite_rotation, resample=Image.BILINEAR,
+                                   expand=True, fillcolor=(0, 0, 0, 0))
+
+        # 3) 颜色抖动 (HSV)
+        if self.sprite_hue_shift != 0 or abs(self.sprite_saturation - 1.0) > 0.01:
+            hsv = scaled.convert("HSV")
+            arr = np.array(hsv, dtype=np.float32)
+            arr[:, :, 0] = (arr[:, :, 0] / 255.0 + self.sprite_hue_shift) % 1.0
+            arr[:, :, 0] *= 255.0
+            arr[:, :, 1] = np.clip(arr[:, :, 1] * self.sprite_saturation, 0, 255)
+            scaled = Image.fromarray(arr.astype(np.uint8), "HSV").convert("RGBA")
+
+        # 4) 亮度/对比度
+        scaled = ImageEnhance.Brightness(scaled).enhance(self.sprite_brightness)
+        scaled = ImageEnhance.Contrast(scaled).enhance(self.sprite_contrast)
+
+        # 5) 贴到背景
+        px = int(cx - scaled.width // 2)
+        py = int(cy - scaled.height // 2)
+        if self.sprite_has_alpha:
+            img_rgba = img.convert("RGBA")
+            img_rgba.paste(scaled, (px, py), scaled)
+            return img_rgba.convert("RGB")
+        else:
+            img.paste(scaled.convert("RGB"), (px, py))
+            return img
