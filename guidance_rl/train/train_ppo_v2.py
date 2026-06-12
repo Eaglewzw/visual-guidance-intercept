@@ -140,6 +140,13 @@ def main():
     priv = torch.from_numpy(priv_np).to(device)
     h = model.actor.initial_hidden(p.num_envs, device)
 
+    # pinned memory 图像缓冲区 (pin 一次, 后续转移用 DMA 零阻塞)
+    if device == "cuda":
+        pin_size = (p.num_envs, 3, CROP_SIZE, CROP_SIZE)
+        img_pinned = torch.empty(pin_size, dtype=torch.uint8, pin_memory=True)
+    else:
+        img_pinned = None
+
     ep_rewards = np.zeros(p.num_envs)
     recent_rewards = deque(maxlen=200)
     recent_outcomes = deque(maxlen=200)
@@ -158,7 +165,12 @@ def main():
         # ---------------- rollout ----------------
         for _ in range(p.rollout_steps):
             with torch.no_grad():
-                img_t = torch.from_numpy(images_np).to(device)
+                # pinned DMA 传输: copy numpy → pinned tensor → GPU(non_blocking)
+                if img_pinned is not None:
+                    img_pinned.copy_(torch.from_numpy(images_np), non_blocking=True)
+                    img_t = img_pinned.to(device, non_blocking=True)
+                else:
+                    img_t = torch.from_numpy(images_np).to(device)
                 act, logprob, value, h = model.act(img_t, ego, gt_obs, priv, h)
             images_next, ego_next, gt_obs_next, priv_next, rew_np, done_np, infos = env.step(
                 act.cpu().numpy())

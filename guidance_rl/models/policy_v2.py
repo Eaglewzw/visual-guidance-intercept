@@ -31,6 +31,8 @@ from torchvision.models import mobilenet_v3_small, MobileNet_V3_Small_Weights
 
 from .policy import RecurrentActor  # 阶段一的 GRU 头（复用其结构模式）
 
+CROP_SIZE = 288
+
 
 # ============================================================
 #  CNN 编码器
@@ -176,19 +178,40 @@ class ActorV2(nn.Module):
     def initial_hidden(self, batch_size: int, device=None):
         return torch.zeros(1, batch_size, self.gru_hidden, device=device)
 
-    # ---- 带 episode 边界的序列前向（PPO 更新用）----
+    # ---- 批量编码 + GRU 逐步展开（PPO 更新用，关键优化）----
     def forward_masked(self, images, ego_state, done_seq, h0):
-        """逐步展开 + done 处重置隐藏状态。返回 mean [B,T,4]"""
+        """将 CNN 编码一次跑完所有 timestep，然后 GRU 逐步展开。
+
+        images:    [B, T, 3, 288, 288]
+        ego_state: [B, T, 8]
+        done_seq:  [B, T]
+        h0:        [1, B, H]
+        返回 mean [B, T, 4]
+        """
         B, T = images.shape[0], images.shape[1]
+
+        # 一次性 CNN 编码所有帧：B×T → 一次 MobileNetV3 前向
+        imgs_flat = images.reshape(B * T, 3, CROP_SIZE, CROP_SIZE)
+        ego_flat = ego_state.reshape(B * T, -1)
+        images_norm = (imgs_flat.float() / 255.0
+                       - torch.tensor([0.485, 0.456, 0.406],
+                                      device=images.device).view(1, 3, 1, 1)) \
+                      / torch.tensor([0.229, 0.224, 0.225],
+                                     device=images.device).view(1, 3, 1, 1)
+        feat_576 = self.encoder(images_norm)          # [B*T, 576]
+        visual = self.visual_proj(feat_576)            # [B*T, 128]
+        ego_code = self.ego_proj(ego_flat)              # [B*T, 32]
+        combined = torch.cat([visual, ego_code], dim=-1).view(B, T, -1)  # [B, T, 136]
+
+        # GRU 逐步展开（轻量，无 CNN）
         h = h0
         means = []
         for t in range(T):
-            act, _, _, h = self.forward(
-                images[:, t], ego_state[:, t], h, return_aux=True)
-            means.append(act)
+            out, h = self.gru(combined[:, t:t + 1, :], h)
+            means.append(torch.tanh(self.head(out)))
             mask = (1.0 - done_seq[:, t]).view(1, B, 1)
             h = h * mask
-        return torch.stack(means, dim=1), h
+        return torch.cat(means, dim=1), h
 
     # ---- 推理（部署 + rollout）----
     @torch.no_grad()
