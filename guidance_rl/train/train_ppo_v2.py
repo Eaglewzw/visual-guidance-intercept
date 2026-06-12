@@ -80,14 +80,20 @@ def main():
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--mode", default="mixed")
-    parser.add_argument("--num-envs", type=int, default=8,
-                        help="envs 数（图像大，比阶段一小）")
+    parser.add_argument("--num-envs", type=int, default=16,
+                        help="envs 数（图像渲染用 OpenCV 后已足够快）")
     parser.add_argument("--rollout-steps", type=int, default=128)
+    parser.add_argument("--lr", type=float, default=None,
+                        help="学习率（覆盖 config）")
+    parser.add_argument("--freeze-cnn", action="store_true",
+                        help="冻结 MobileNetV3 骨干，只训 GRU+投影头")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
     cfg["ppo"]["num_envs"] = args.num_envs
     cfg["ppo"]["rollout_steps"] = args.rollout_steps
+    if args.lr is not None:
+        cfg["ppo"]["lr"] = args.lr
     p = cfg.ppo
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
@@ -110,9 +116,21 @@ def main():
         if missing.missing_keys:
             print(f"  未初始化: {len(missing.missing_keys)} 键（正常）")
         del ckpt
-        torch.cuda.empty_cache()  # 释放 BC checkpoint 加载残留
+        torch.cuda.empty_cache()
+
+    if args.freeze_cnn:
+        # 冻结 MobileNetV3 骨干，只训 GRU + 投影头
+        frozen_params = 0
+        for name, param in model.actor.named_parameters():
+            if "encoder" in name:
+                param.requires_grad = False
+                frozen_params += param.numel()
+        print(f"冻结 CNN 骨干: {frozen_params/1e6:.1f}M 参数  "
+              f"可训: {sum(p.numel() for p in model.actor.parameters() if p.requires_grad)/1e6:.1f}M")
 
     ppo = PPO(model, p, device)
+    print(f"PPO V2配置: lr={p.lr:.1e}  envs={p.num_envs}  rollout={p.rollout_steps}  "
+          f"steps={p.total_steps/1e6:.1f}M  gamma={p.gamma}  clip={p.clip_eps}")
     writer = SummaryWriter(args.logdir)
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
 
