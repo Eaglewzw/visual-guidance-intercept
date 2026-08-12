@@ -1,6 +1,6 @@
-# guidance_rl
+# AeroIntercept
 
-视觉无人机拦截学习工程，包含两个有效阶段：
+面向视觉无人机追踪与拦截学习的开源框架，包含两个有效阶段：
 
 | 阶段 | 状态 | 输入 | 输出 |
 |---|---|---|---|
@@ -27,8 +27,6 @@
 推荐 Python 3.10+：
 
 ```bash
-conda activate guidance-rl
-cd /home/verser/Python/guidance_rl
 pip install -r requirements.txt
 pip install -e .
 python -m pytest -q
@@ -39,7 +37,7 @@ python -m pytest -q
 ### 1. 收集 PNG 专家数据
 
 ```bash
-python -m guidance_rl.training.collect_e2e_data \
+python -m aerointercept.training.collect_e2e_data \
   --episodes 1000 --out data/e2e_bc
 ```
 
@@ -48,14 +46,14 @@ python -m guidance_rl.training.collect_e2e_data \
 ### 2. 行为克隆
 
 ```bash
-python -m guidance_rl.training.train_e2e_bc \
+python -m aerointercept.training.train_e2e_bc \
   --data data/e2e_bc --out checkpoints/e2e_bc.pt
 ```
 
 ### 3. PPO 微调
 
 ```bash
-python -m guidance_rl.training.train_e2e_ppo \
+python -m aerointercept.training.train_e2e_ppo \
   --bc-init checkpoints/e2e_bc.pt \
   --out checkpoints/e2e_rl.pt --logdir runs/e2e_ppo
 ```
@@ -64,11 +62,11 @@ python -m guidance_rl.training.train_e2e_ppo \
 
 ```bash
 # PNG 基线
-python -m guidance_rl.evaluation.eval_e2e \
+python -m aerointercept.evaluation.eval_e2e \
   --policy png --episodes 200 --out results/e2e_png.csv
 
 # 全端到端策略与注意力图
-python -m guidance_rl.evaluation.eval_e2e \
+python -m aerointercept.evaluation.eval_e2e \
   --policy checkpoints/e2e_rl.pt --episodes 200 \
   --out results/e2e_rl.csv \
   --attention-dir results/attention --attention-count 20
@@ -79,7 +77,7 @@ python -m guidance_rl.evaluation.eval_e2e \
 ### 5. 导出
 
 ```bash
-python -m guidance_rl.export_e2e \
+python -m aerointercept.export_e2e \
   --ckpt checkpoints/e2e_rl.pt --out export/e2e_policy.pt
 ```
 
@@ -91,7 +89,7 @@ python -m guidance_rl.export_e2e \
 运行时示例：
 
 ```python
-from guidance_rl.end_to_end.runtime import EndToEndRuntime
+from aerointercept.end_to_end.runtime import EndToEndRuntime
 
 runtime = EndToEndRuntime("export/e2e_policy.pt")
 result = runtime.step(camera_rgb, current_yaw)
@@ -106,24 +104,24 @@ else:
 ## 学习制导使用流程
 
 ```bash
-python -m guidance_rl.training.collect_bc_data \
+python -m aerointercept.training.collect_bc_data \
   --episodes 2000 --out data/bc_dataset.npz
-python -m guidance_rl.training.train_bc \
+python -m aerointercept.training.train_bc \
   --data data/bc_dataset.npz --out checkpoints/bc_policy.pt
-python -m guidance_rl.training.train_ppo \
+python -m aerointercept.training.train_ppo \
   --bc-init checkpoints/bc_policy.pt --out checkpoints/rl_policy.pt
-python -m guidance_rl.evaluation.eval_gym \
+python -m aerointercept.evaluation.eval_gym \
   --policy checkpoints/rl_policy.pt --episodes 200 --out results/guidance.csv
-python -m guidance_rl.export \
+python -m aerointercept.export \
   --ckpt checkpoints/rl_policy.pt --out export/policy.pt
 ```
 
 ## 目录结构
 
 ```text
-guidance_rl/
+AeroIntercept/
 ├── configs/default.yaml          # 全部配置
-├── guidance_rl/
+├── aerointercept/
 │   ├── environments/             # 共享物理内核与学习制导环境
 │   ├── models/policy.py          # 学习制导模型
 │   ├── end_to_end/               # 全端到端环境、模型、动作和运行时

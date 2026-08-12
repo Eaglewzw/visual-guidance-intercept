@@ -5,7 +5,7 @@
   policy_meta.json : 动作解码常数 + 特征版本（policy_runtime 加载时校验）
 
 用法:
-  python -m guidance_rl.export --ckpt checkpoints/rl_policy.pt \\
+  python -m aerointercept.export --ckpt checkpoints/rl_policy.pt \\
       --out /home/verser/ros2_ws/src/uav_rl_guidance/models/policy.pt
 """
 import argparse

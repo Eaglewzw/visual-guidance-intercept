@@ -4,7 +4,7 @@
 即 DAgger 意义上的"可执行专家"）。逐集存储，train_bc 按集采样子序列。
 
 用法:
-  python -m guidance_rl.training.collect_bc_data --episodes 2000 \\
+  python -m aerointercept.training.collect_bc_data --episodes 2000 \\
       --out data/bc_dataset.npz
 """
 import argparse

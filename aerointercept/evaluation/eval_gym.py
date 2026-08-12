@@ -3,9 +3,9 @@
 指标与 vpng_intercept_stats CSV 口径一致：命中率、最近接距离、拦截时间、丢失率。
 
 用法:
-  python -m guidance_rl.evaluation.eval_gym --policy png
-  python -m guidance_rl.evaluation.eval_gym --policy checkpoints/bc_policy.pt
-  python -m guidance_rl.evaluation.eval_gym --policy checkpoints/rl_policy.pt \\
+  python -m aerointercept.evaluation.eval_gym --policy png
+  python -m aerointercept.evaluation.eval_gym --policy checkpoints/bc_policy.pt
+  python -m aerointercept.evaluation.eval_gym --policy checkpoints/rl_policy.pt \\
       --episodes 200 --out results/rl_eval.csv --save-traj 5
 """
 import argparse

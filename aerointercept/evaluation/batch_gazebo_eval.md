@@ -4,14 +4,13 @@
 
 1. 已完成训练并导出模型：
    ```bash
-   conda activate guidance_rl
-   cd /home/verser/Python/guidance_rl
-   python -m guidance_rl.export --ckpt checkpoints/rl_policy.pt \
+   cd AeroIntercept
+   python -m aerointercept.export --ckpt checkpoints/rl_policy.pt \
        --out /home/verser/ros2_ws/src/uav_rl_guidance/models/policy.pt
    ```
 2. 系统 Python（ROS2 用）已安装依赖：
    ```bash
-   /usr/bin/python3 -m pip install -e /home/verser/Python/guidance_rl --user
+   /usr/bin/python3 -m pip install -e . --user
    ```
 3. `colcon build --packages-select uav_rl_guidance --symlink-install`
 
@@ -57,7 +56,7 @@ ros2 launch uav_rl_guidance rl_guidance.launch.py fallback_png:=true \
 
 ```bash
 # 仿真运行中录制 60s 闭环数据
-python3 -m guidance_rl.evaluation.record_gazebo_episode --out data/gazebo_ep1.npz --duration 60
+python3 -m aerointercept.evaluation.record_gazebo_episode --out data/gazebo_ep1.npz --duration 60
 ```
 
 校准点：
@@ -69,8 +68,8 @@ python3 -m guidance_rl.evaluation.record_gazebo_episode --out data/gazebo_ep1.np
 
 ## 故障排查
 
-- 节点报 `No module named guidance_rl` → 前置条件 2 未对系统 Python 执行
-- 节点报特征版本不匹配 → 用当前 guidance_rl 代码重新 export
+- 节点报 `No module named aerointercept` → 前置条件 2 未对系统 Python 执行
+- 节点报特征版本不匹配 → 用当前 AeroIntercept 代码重新 export
 - 日志频繁出现 `[watchdog]` → 策略输出异常，检查模型与 meta 是否配套；
   watchdog 会自动回退 PNG，实验数据仍有效但应标注
 - 想跳过起飞在台架上验证链路：`--ros-args -p bench_test:=true`

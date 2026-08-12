@@ -6,12 +6,12 @@ import math
 import numpy as np
 import pytest
 
-from guidance_rl.geometry import (
+from aerointercept.geometry import (
     R_C2B, wrap_pi, euler_to_r_b2n, pixel_to_los,
     angles_to_velocity, project_to_pixel, segment_min_distance, quat_to_euler,
 )
-from guidance_rl.png_teacher import PNGTeacher
-from guidance_rl.features import (
+from aerointercept.png_teacher import PNGTeacher
+from aerointercept.features import (
     FeatureBuilder, decode_action, encode_action_from_velocity, OBS_DIM,
 )
 

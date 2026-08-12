@@ -5,24 +5,24 @@ import math
 import numpy as np
 import torch
 
-from guidance_rl.config import DotDict, load_config
-from guidance_rl.end_to_end.actions import (
+from aerointercept.config import DotDict, load_config
+from aerointercept.end_to_end.actions import (
     body_to_ned,
     decode_action,
     encode_velocity_command,
 )
-from guidance_rl.end_to_end.data import EpisodeSequenceDataset
-from guidance_rl.end_to_end.distributions import (
+from aerointercept.end_to_end.data import EpisodeSequenceDataset
+from aerointercept.end_to_end.distributions import (
     squashed_normal_log_probability,
     squashed_normal_sample,
 )
-from guidance_rl.end_to_end.environment import EndToEndInterceptEnv
-from guidance_rl.end_to_end.policy import EndToEndActorCritic
-from guidance_rl.end_to_end.renderer import FullFrameRenderer
-from guidance_rl.end_to_end.runtime import EndToEndRuntime
-from guidance_rl.environments import InterceptEnv
-from guidance_rl.training.train_e2e_bc import compute_losses
-from guidance_rl.training.train_e2e_ppo import ImageRolloutBuffer, ppo_update
+from aerointercept.end_to_end.environment import EndToEndInterceptEnv
+from aerointercept.end_to_end.policy import EndToEndActorCritic
+from aerointercept.end_to_end.renderer import FullFrameRenderer
+from aerointercept.end_to_end.runtime import EndToEndRuntime
+from aerointercept.environments import InterceptEnv
+from aerointercept.training.train_e2e_bc import compute_losses
+from aerointercept.training.train_e2e_ppo import ImageRolloutBuffer, ppo_update
 
 
 def test_direct_action_roundtrip_and_coordinate_rotation():

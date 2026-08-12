@@ -1,5 +1,5 @@
 # ============================================================
-#  guidance_rl 全局配置
+#  AeroIntercept 全局配置
 #  所有数值与 ros2_ws 现有实现对齐：
 #    相机参数  : uav_vision_png/config/params.yaml
 #    PNG 参数  : 同上（launch 加载的调好的那组）

@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="guidance_rl",
+    name="aerointercept",
     version="0.3.0",
     description="Learned-guidance and full-frame UAV interception",
     packages=find_packages(exclude=["tests"]),

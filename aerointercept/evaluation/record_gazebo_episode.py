@@ -13,7 +13,7 @@
   target_pos : 目标 GPS→NED
 
 用法（仿真运行中）:
-  python -m guidance_rl.evaluation.record_gazebo_episode --out data/gazebo_ep1.npz \\
+  python -m aerointercept.evaluation.record_gazebo_episode --out data/gazebo_ep1.npz \\
       --duration 60
 
 校准示例:
@@ -32,7 +32,7 @@ from px4_msgs.msg import (TrajectorySetpoint, VehicleOdometry,
                           VehicleLocalPosition, SensorGps)
 from uav_common_msg.msg import RectMsg
 
-from guidance_rl.geometry import quat_to_euler
+from aerointercept.geometry import quat_to_euler
 
 _M_PER_DEG_LAT = 111320.0
 

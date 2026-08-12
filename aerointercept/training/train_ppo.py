@@ -1,7 +1,7 @@
 """PPO 微调主程序（BC 热启动）
 
 用法:
-  python -m guidance_rl.training.train_ppo --bc-init checkpoints/bc_policy.pt \\
+  python -m aerointercept.training.train_ppo --bc-init checkpoints/bc_policy.pt \\
       --out checkpoints/rl_policy.pt --logdir runs/ppo
 
 监控: tensorboard --logdir runs/
@@ -146,7 +146,7 @@ def main():
         print(f"\nPPO 完成（episode 样本不足，保存最终权重），已保存 {args.out}")
     else:
         print(f"\nPPO 完成，最优近期命中率 {best_hit_rate:.1%}，已保存 {args.out}")
-    print("下一步: python -m guidance_rl.evaluation.eval_gym --policy", args.out)
+    print("下一步: python -m aerointercept.evaluation.eval_gym --policy", args.out)
 
 
 if __name__ == "__main__":
