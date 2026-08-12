@@ -1,4 +1,4 @@
-"""拦截 Gym 环境 —— 阶段一训练主战场
+"""学习制导的拦截 Gym 环境
 
 只建模 INTERCEPT 阶段（起飞/搜索由部署节点的状态机处理，不学习）：
 reset 时目标已在视场内，episode 在命中/长时间丢失/超时/触地时结束。
@@ -9,8 +9,6 @@ reset 时目标已在视场内，episode 在命中/长时间丢失/超时/触地
          对应真实系统中"统计专用"的 GPS 数据 —— 部署时不可用）
 teacher : info["teacher_action"] PNG 老师对当前帧的动作标签（BC 采样/对比用）
 """
-import math
-
 import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
@@ -19,11 +17,9 @@ from ..config import load_config
 from ..features import (
     FeatureBuilder, decode_action, encode_action_from_velocity, OBS_DIM, ACT_DIM,
 )
-from ..geometry import segment_min_distance
 from ..png_teacher import PNGTeacher
-from .target_motion import TargetMotion
-from .interceptor_dynamics import InterceptorDynamics
 from .camera_model import CameraModel
+from .interception_core import InterceptionCore
 
 PRIV_DIM = 9
 # 特权观测归一化
@@ -50,7 +46,8 @@ class InterceptEnv(gym.Env):
         self.lost_steps = c.png.lost_steps
         self.rw = c.env.reward
 
-        self.dynamics = InterceptorDynamics(c.dynamics)
+        self.core = InterceptionCore(c, mode=mode, seed=seed)
+        self.dynamics = self.core.dynamics
         self.camera = CameraModel(c.camera, self.rng)
         self.fb = FeatureBuilder(c.camera.focal_length,
                                  c.camera.image_width, c.camera.image_height)
@@ -73,40 +70,20 @@ class InterceptEnv(gym.Env):
 
     # ==================================================================
     def reset(self, *, seed=None, options=None):
+        super().reset(seed=seed)
         if seed is not None:
             self.rng = np.random.default_rng(seed)
             self.camera.rng = self.rng
-        c = self.cfg
-
-        # ---- 拦截机：悬停在待机高度，机头随机朝向 ----
-        yaw0 = self.rng.uniform(-math.pi, math.pi)
-        self.dynamics.reset(np.array([0.0, 0.0, c.env.standby_alt]), yaw0)
-
-        # ---- 目标：在机头方向 spawn_range 距离处出生（保证初始在 FOV 内）----
-        mode = self.mode
-        if mode == "mixed":
-            mode = str(self.rng.choice(c.target.modes, p=c.target.mode_probs))
-        self._episode_mode = mode
-
-        r0 = self.rng.uniform(*c.env.spawn_range)
-        az = yaw0 + self.rng.uniform(-c.env.spawn_az_jitter, c.env.spawn_az_jitter)
-        alt = c.target.alt + self.rng.uniform(-c.target.alt_jitter, c.target.alt_jitter)
-        center = self.dynamics.pos + np.array([
-            r0 * math.cos(az), r0 * math.sin(az), 0.0])
-        center[2] = alt
-
-        self.target = TargetMotion(mode, c.target, self.rng)
-        self.target_pos = self.target.reset(center)
-        self.target_vel = np.zeros(3)
+        self.core.rng = self.rng
+        self.core.reset()
+        self._episode_mode = self.core.episode_mode
 
         self.camera.reset()
         self.fb.reset()
         self.teacher.reset()
 
-        self.steps = 0
         self.lost_count = 0
-        self.min_dist = float(np.linalg.norm(self.target_pos - self.dynamics.pos))
-        self.prev_dist = self.min_dist
+        self.prev_dist = self.core.previous_distance
         self.prev_action = np.zeros(ACT_DIM, dtype=np.float32)
 
         # 首帧观测（动力学未推进，先观测一次）
@@ -124,16 +101,8 @@ class InterceptEnv(gym.Env):
         vx, vy, vz, yaw_rate = decode_action(
             action, self.fb.los_v, self.fb.los_z, **self._decode_kw)
 
-        # ---- 推进动力学与目标 ----
-        i_prev, i_now = self.dynamics.step(np.array([vx, vy, vz]), yaw_rate, self.dt)
-        t_prev = self.target_pos.copy()
-        self.target_pos, self.target_vel = self.target.step(self.dt, i_now)
-
-        # ---- 命中判定（步内最小距离，防高速穿越漏判）----
-        step_min = segment_min_distance(i_prev, i_now, t_prev, self.target_pos)
-        dist = float(np.linalg.norm(self.target_pos - i_now))
-        self.min_dist = min(self.min_dist, step_min)
-        hit = step_min < self.hit_radius
+        transition = self.core.step(np.array([vx, vy, vz]), yaw_rate)
+        hit = transition.hit
 
         # ---- 观测 ----
         det = self._observe()
@@ -145,7 +114,9 @@ class InterceptEnv(gym.Env):
 
         # ---- 奖励 ----
         rw = self.rw
-        reward = rw.w_close * (self.prev_dist - dist) / self.dt / c.png.speed_cmd
+        reward = (rw.w_close
+                  * (transition.previous_distance - transition.distance)
+                  / self.dt / c.png.speed_cmd)
         reward -= rw.time_penalty
         reward -= rw.w_smooth * float(np.sum((action - self.prev_action) ** 2))
         if det is not None:
@@ -157,7 +128,6 @@ class InterceptEnv(gym.Env):
             reward -= rw.invalid_penalty
 
         # ---- 终止判定 ----
-        self.steps += 1
         terminated = False
         truncated = False
         outcome = ""
@@ -169,31 +139,31 @@ class InterceptEnv(gym.Env):
             reward -= rw.fov_lost_penalty
             terminated = True
             outcome = "fov_lost"
-        elif i_now[2] > c.env.ground_z:
+        elif transition.touched_ground:
             reward -= rw.ground_penalty
             terminated = True
             outcome = "ground"
-        elif self.steps >= self.max_steps:
+        elif transition.timed_out:
             reward -= rw.timeout_penalty
             truncated = True
             outcome = "timeout"
 
-        self.prev_dist = dist
         self.prev_action = action
+        self.prev_dist = self.core.previous_distance
 
         info = self._make_info(det, hit=hit)
         if outcome:
             info["outcome"] = outcome
-            info["min_dist"] = self.min_dist
-            info["episode_steps"] = self.steps
-            info["mode"] = self._episode_mode
+            info["min_dist"] = self.core.min_dist
+            info["episode_steps"] = self.core.steps
+            info["mode"] = self.core.episode_mode
         return obs, float(reward), terminated, truncated, info
 
     # ==================================================================
     #  内部
     # ==================================================================
     def _observe(self):
-        rel = self.target_pos - self.dynamics.pos
+        rel = self.core.target_pos - self.dynamics.pos
         return self.camera.observe(rel, self.dynamics.roll,
                                    self.dynamics.pitch, self.dynamics.yaw)
 
@@ -204,11 +174,11 @@ class InterceptEnv(gym.Env):
 
     def _make_info(self, det, hit: bool):
         d = self.dynamics
-        rel = self.target_pos - d.pos
+        rel = self.core.target_pos - d.pos
         critic_obs = np.concatenate([
             rel / _PRIV_POS_NORM,
-            (self.target_vel - d.vel) / _PRIV_VEL_NORM,
-            self.target_vel / _PRIV_TVEL_NORM,
+            (self.core.target_vel - d.vel) / _PRIV_VEL_NORM,
+            self.core.target_vel / _PRIV_TVEL_NORM,
         ]).astype(np.float32)
 
         # PNG 老师动作标签（老师状态每步推进一次，与策略共享同一检测流）
@@ -225,6 +195,27 @@ class InterceptEnv(gym.Env):
             "dist": float(np.linalg.norm(rel)),
             "valid": det is not None,
         }
+
+    # Compatibility properties used by the existing evaluators.
+    @property
+    def target_pos(self):
+        return self.core.target_pos
+
+    @property
+    def target_vel(self):
+        return self.core.target_vel
+
+    @property
+    def target(self):
+        return self.core.target
+
+    @property
+    def steps(self):
+        return self.core.steps
+
+    @property
+    def min_dist(self):
+        return self.core.min_dist
 
 
 # ======================================================================

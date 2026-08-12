@@ -1,8 +1,8 @@
-"""拦截机简化动力学 —— 速度指令一阶响应质点模型
+"""拦截机简化动力学 —— 速度指令的一阶响应质点模型
 
 对应真实链路：策略输出 NED 速度指令 → PX4 速度环跟踪。
 PX4 速度环近似为一阶系统（τ_v ≈ 0.4s，可按 Gazebo 录制数据校准，
-见 eval/record_gazebo_episode.py）。
+见 evaluation/record_gazebo_episode.py）。
 
 前倾姿态模型：四旋翼通过倾斜产生水平加速度，
   pitch ≈ -atan(a_fwd/g)（前飞低头，pitch<0）

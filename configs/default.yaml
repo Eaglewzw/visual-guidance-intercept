@@ -140,15 +140,86 @@ ppo:
   log_std_min: -2.5
   log_std_max: 0.0
 
-# ---- 阶段二 图像参数 ----
-v2:
-  crop_size: 288
-  aux_bbox_coef: 2.0         # BC 训练辅助 bbox 回归权重
-  aux_conf_coef: 0.5          # BC 训练辅助置信度权重
-  # 以下从 camera 节继承：focal_length, image_width, image_height, target_size_*
-  pretrained_cnn: true        # MobileNetV3 ImageNet 预训练
-  # 无人机纹理图片路径（PNG 透明背景俯视图最佳）
-  # 设为空字符串 "" 则仅用几何图形（cross/diamond/quad）
-  # 设为路径则按 sprite_prob 概率使用真实纹理
-  sprite_path: "/home/verser/Pictures/data.png"
-  sprite_prob: 0.9             # 90% 纹理 + 10% 几何混合（防过拟合单一形状）
+# ============================================================
+#  全端到端：全帧像素 → 机体系速度指令（不读取 bbox/LOS/自身状态）
+# ============================================================
+end_to_end:
+  render:
+    # 保持 16:9 全相机视场，只降低训练分辨率；部署端必须用同样尺寸/RGB顺序
+    image_width: 192
+    image_height: 108
+    sprite_path: "assets/data.png"  # 相对工程根目录；缺失时自动用几何无人机
+    sprite_probability: 0.85
+    min_target_pixels: 2.0
+    focal_jitter: 0.08
+    target_scale_jitter: 0.25
+    brightness_range: [0.65, 1.35]
+    contrast_range: [0.65, 1.35]
+    noise_std_range: [0.0, 8.0]
+    blur_kernels: [0, 0, 0, 3, 5]
+
+  # 网络输出为机头坐标系 [forward,right,down,yaw_rate]，再做确定性 yaw→NED 旋转。
+  # 这样 Actor 只看图像仍是可观测问题；动作解码不依赖检测框或 LOS。
+  action:
+    velocity_max: 8.0
+    yaw_rate_max: 1.0
+
+  # 仅训练使用的多任务标签和特权 Critic 归一化常数
+  labels:
+    future_horizon_s: 1.0
+    risk_horizon_s: 2.0
+    risk_radius: 1.6
+    position_norm: 30.0
+    velocity_norm: 10.0
+    target_velocity_norm: 5.0
+    altitude_norm: 20.0
+
+  model:
+    history_frames: 2          # Siamese 双帧输入
+    encoder_channels: [24, 40, 64, 96]
+    encoder_strides: [1, 2, 2, 1]  # 总步幅 8，保留远距离 2~4px 小目标
+    encoder_chunk_size: 128    # BC/PPO 大批量时分块过 CNN，限制峰值显存
+    embedding_dim: 128
+    transformer_heads: 4
+    transformer_layers: 2
+    transformer_ff_dim: 256
+    dropout: 0.1
+    critic_dim: 15
+    critic_hidden: 256
+    init_log_std: -1.2
+
+  auxiliary:
+    future_coef: 1.0
+    risk_coef: 0.5
+    confidence_coef: 0.5
+
+  bc:
+    episodes: 1000
+    sequence_length: 32
+    batch_size: 8
+    epochs: 30
+    learning_rate: 3.0e-4
+    val_fraction: 0.1
+    num_workers: 0
+
+  ppo:
+    num_envs: 8
+    rollout_steps: 64
+    total_steps: 1000000
+    epochs: 4
+    num_minibatches: 4
+    gamma: 0.995
+    gae_lambda: 0.95
+    clip_eps: 0.2
+    entropy_coef: 0.001
+    value_coef: 0.5
+    auxiliary_coef: 0.1
+    learning_rate: 5.0e-5
+    max_grad_norm: 0.5
+    target_kl: 0.03
+    log_std_min: -2.5
+    log_std_max: -0.1
+
+  safety:
+    confidence_threshold: 0.35
+    max_command_speed: 8.0

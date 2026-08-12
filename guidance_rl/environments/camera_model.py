@@ -1,4 +1,4 @@
-"""相机/检测模型 —— 模拟 uav_vision_dectect（YOLO+LightTrack）的 bbox 输出
+"""相机与检测模型 —— 模拟 uav_vision_dectect（YOLO+LightTrack）的 bbox 输出
 
 针孔投影（focal=1397.2, 1920x1080，与 SDF 一致）+ 检测退化模型：
   - bbox 尺寸 w = focal * 目标物理尺寸 / 距离（每集尺寸 ±20% 随机）

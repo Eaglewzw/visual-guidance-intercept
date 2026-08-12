@@ -13,7 +13,7 @@
   target_pos : 目标 GPS→NED
 
 用法（仿真运行中）:
-  python -m guidance_rl.eval.record_gazebo_episode --out data/gazebo_ep1.npz \\
+  python -m guidance_rl.evaluation.record_gazebo_episode --out data/gazebo_ep1.npz \\
       --duration 60
 
 校准示例:

@@ -5,7 +5,7 @@
 进入瞬间的状态一致，不构成训练/部署偏差。
 
 用法:
-  python -m guidance_rl.train.train_bc --data data/bc_dataset.npz \\
+  python -m guidance_rl.training.train_bc --data data/bc_dataset.npz \\
       --out checkpoints/bc_policy.pt
 """
 import argparse
@@ -121,7 +121,7 @@ def main():
               f"train {train_loss:.5f}  val {val_loss:.5f}{tag}")
 
     print(f"\nBC 完成，最优 val MSE = {best_val:.5f}，已保存 {args.out}")
-    print("下一步: python -m guidance_rl.eval.eval_gym --policy", args.out)
+    print("下一步: python -m guidance_rl.evaluation.eval_gym --policy", args.out)
 
 
 if __name__ == "__main__":

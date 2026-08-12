@@ -1,7 +1,7 @@
 """评估结果可视化：多策略指标对比 + 3D 拦截轨迹
 
 用法:
-  python -m guidance_rl.eval.plot_results \\
+  python -m guidance_rl.evaluation.plot_results \\
       --csv results/png_eval.csv results/bc_eval.csv results/rl_eval.csv \\
       --labels PNG BC RL --out results/plots
 """

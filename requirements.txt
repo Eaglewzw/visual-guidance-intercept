@@ -1,4 +1,4 @@
-# 学习制导律训练工程依赖
+# 学习制导 + 全端到端训练工程依赖（Python 3.10+）
 # 安装: pip install -r requirements.txt && pip install -e .
 torch>=1.13
 numpy>=1.21

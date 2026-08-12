@@ -1,4 +1,4 @@
-# Gazebo 批量对比实验手册（RL 策略 vs PNG 基线）
+# Gazebo 批量评估手册（RL 策略 vs PNG 基线）
 
 ## 前置条件
 
@@ -57,7 +57,7 @@ ros2 launch uav_rl_guidance rl_guidance.launch.py fallback_png:=true \
 
 ```bash
 # 仿真运行中录制 60s 闭环数据
-python3 -m guidance_rl.eval.record_gazebo_episode --out data/gazebo_ep1.npz --duration 60
+python3 -m guidance_rl.evaluation.record_gazebo_episode --out data/gazebo_ep1.npz --duration 60
 ```
 
 校准点：

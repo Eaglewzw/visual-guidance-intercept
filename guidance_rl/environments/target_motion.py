@@ -1,4 +1,4 @@
-"""目标机运动模型 —— 移植 uav_target_sim/src/uav_target_sim.cpp
+"""目标机运动模型 —— 移植自 uav_target_sim/src/uav_target_sim.cpp
 
 C++ 以 0.1s 步进发位置 setpoint；此处换算为连续时间在任意 dt 下积分：
   circle      : R=5, ω=0.5 rad/s（cpp 构造函数 angular_speed_=0.05/0.1s 覆盖 hpp 默认值）
