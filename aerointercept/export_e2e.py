@@ -18,7 +18,9 @@ def main():
     args = parser.parse_args()
 
     cfg = load_config(args.config)
-    checkpoint = torch.load(args.ckpt, map_location="cpu")
+    checkpoint = torch.load(
+        args.ckpt, map_location="cpu", weights_only=False
+    )
     if checkpoint.get("phase") != 3:
         raise ValueError("checkpoint is not an end-to-end policy")
     model_config = DotDict(checkpoint.get(
@@ -27,15 +29,21 @@ def main():
     model.load_state_dict(checkpoint["model"], strict=True)
     actor = model.actor.eval()
     scripted = torch.jit.script(actor)
+    if any(name.startswith("critic") for name, _ in scripted.named_modules()):
+        raise RuntimeError("deployment export unexpectedly contains the critic")
 
-    render_config = checkpoint.get(
-        "render_config", dict(cfg.end_to_end.render))
-    action_config = checkpoint.get(
-        "action_config", dict(cfg.end_to_end.action))
-    label_config = checkpoint.get(
-        "label_config", dict(cfg.end_to_end.labels))
-    safety_config = checkpoint.get(
-        "safety_config", dict(cfg.end_to_end.safety))
+    render_config = checkpoint.get("render_config")
+    if render_config is None:
+        render_config = dict(cfg.end_to_end.render)
+    action_config = checkpoint.get("action_config")
+    if action_config is None:
+        action_config = dict(cfg.end_to_end.action)
+    label_config = checkpoint.get("label_config")
+    if label_config is None:
+        label_config = dict(cfg.end_to_end.labels)
+    safety_config = checkpoint.get("safety_config")
+    if safety_config is None:
+        safety_config = dict(cfg.end_to_end.safety)
     height = int(render_config["image_height"])
     width = int(render_config["image_width"])
     history = int(model_config.history_frames)
@@ -64,6 +72,9 @@ def main():
             "image_width": width,
             "image_height": height,
             "normalization": "embedded_in_model",
+            "preprocessing": render_config.get("transform", "identity"),
+            "source_image_width": render_config.get("source_image_width", width),
+            "source_image_height": render_config.get("source_image_height", height),
         },
         "outputs": [
             {"name": "action", "shape": [1, 4], "activation": "tanh"},
@@ -92,6 +103,7 @@ def main():
         "source_checkpoint": str(Path(args.ckpt).resolve()),
         "checkpoint_hit_rate": checkpoint.get("hit_rate"),
         "checkpoint_global_step": checkpoint.get("global_step"),
+        "contains_critic": False,
     }
     metadata_path = output_path.with_name(output_path.stem + "_meta.json")
     with metadata_path.open("w", encoding="utf-8") as stream:

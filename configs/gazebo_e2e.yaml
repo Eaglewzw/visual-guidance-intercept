@@ -1,0 +1,86 @@
+# Gazebo Harmonic + PX4 SITL stage-two overlay.
+# Deep-merged over configs/default.yaml; the legacy 2-D workflow remains intact.
+gazebo:
+  backend: gazebo_harmonic_px4_sitl
+  world: aerointercept_park
+  scene:
+    preset: realistic_park
+    local_pbr_surface: true
+    official_fuel_vegetation: true
+    # Oak/Pine meshes are downloaded once into the normal Gazebo Fuel cache.
+    first_launch_requires_network: true
+  bridge:
+    socket: /tmp/aerointercept_gazebo/bridge.sock
+    timeout_s: 10.0
+    startup_timeout_s: 45.0
+  camera:
+    source: Gazebo OakD-Lite IMX214 via ros_gz_bridge
+    source_width: 1920
+    source_height: 1080
+    source_topic: /camera/image
+    transform: full_frame_letterbox_v1
+    horizontal_fov: 1.204
+    # Derived from the 16:9 source sensor and horizontal FOV.
+    vertical_fov: 0.737596
+    color_order: RGB
+    # OakD-Lite image axis is -90 deg from PX4's reported FRD yaw.  The sign
+    # was calibrated from rendered landmarks and Gazebo dynamic model poses.
+    mount_yaw_offset_rad: -1.5707963267948966
+    output_width: 640
+    output_height: 640
+  action:
+    protocol: body_forward_right_down_yaw_rate
+    velocity_max: 8.0
+    yaw_rate_max: 1.0
+  task:
+    reset_position_ned: [0.0, 0.0, -6.0]
+    reset_yaw: 0.0
+    look_at_target: true
+    reset_yaw_tolerance_rad: 0.15
+    reset_timeout_s: 45.0
+    reset_tolerance_m: 0.75
+    reset_speed_tolerance: 0.75
+    target_minimum_altitude: 4.0
+    episode_max_steps: 600
+    hit_radius: 0.8
+    lost_steps: 30
+    ground_height: 0.25
+    scene_boundary: 35.0
+    maximum_altitude: 20.0
+  rewards:
+    close: 1.0
+    hit: 50.0
+    time: -0.01
+    fov_center: -0.1
+    lost: -0.2
+    smooth: -0.05
+    ground: -20.0
+    invalid: -30.0
+    out_of_bounds: -20.0
+    timeout: -10.0
+  runtime:
+    ros_setup: /opt/ros/humble/setup.bash
+    ros_workspace: /home/verser/ros2_ws/install/setup.bash
+    px4_root: /home/verser/PX4-Autopilot
+    target_controller: /home/verser/ros2_ws/build/uav_target_sim/uav_target_sim
+
+end_to_end:
+  render:
+    source: Gazebo OakD-Lite IMX214 / full-frame letterbox
+    source_image_width: 1920
+    source_image_height: 1080
+    transform: full_frame_letterbox_v1
+    image_width: 640
+    image_height: 640
+    channel_order: RGB
+    history_frames: 2
+    storage_dtype: uint8
+    normalization: float32/255 then ImageNet mean/std
+  model:
+    # Keep the existing architecture; chunking caps 640x640 activation memory.
+    encoder_chunk_size: 4
+  ppo:
+    num_envs: 1
+    rollout_steps: 16
+    total_steps: 512
+    num_minibatches: 4

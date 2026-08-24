@@ -1,0 +1,13 @@
+# Flat 160 m park surface. Repeated UV coordinates keep the grass texel scale natural.
+o park_ground
+v -80.0 -80.0 0.0
+v  80.0 -80.0 0.0
+v  80.0  80.0 0.0
+v -80.0  80.0 0.0
+vt 0.0 0.0
+vt 40.0 0.0
+vt 40.0 40.0
+vt 0.0 40.0
+vn 0.0 0.0 1.0
+f 1/1/1 2/2/1 3/3/1
+f 1/1/1 3/3/1 4/4/1

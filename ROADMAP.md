@@ -1,139 +1,44 @@
 # AeroIntercept 路线图
 
-更新时间：2026-08-12
+更新时间：2026-08-24
 
-## 当前结论
+## 当前主线
 
-工程只保留两条有效工作流：
-
-```text
-学习制导（稳定基线）                     全端到端（当前主线）
-检测器/跟踪器 → bbox → GRU → 制导         完整 RGB 帧 → 单一模型 → 速度指令
-              \                         /
-               \—— 同一物理内核与评估口径 ——/
-```
-
-共同指标保持不变：命中率、最近接距离、拦截时间、视场丢失率，以及全端到端策略的低置信度回退比例。所有结果必须按 `circle / sinusoidal / random_walk / hover_escape` 分组，不能只报告总体均值。
-
-## 学习制导
-
-状态：代码和接口保留。
-
-该工作流冻结 YOLO + LightTrack 感知层，以 15 维 bbox/LOS/自身状态特征驱动 GRU Actor。训练采用 PNG 行为克隆、Recurrent PPO 和仿真真值 Critic；部署只使用 Actor，并由 PNG watchdog 兜底。
-
-它继续承担三个角色：
-
-1. 可解释、低算力、sim-to-real 风险较低的部署方案；
-2. 全端到端策略的 PNG 专家和安全回退基线；
-3. 论文实验中判断“全图视觉是否真正提供增量价值”的对照组。
-
-稳定接口：
-
-- 观测：`FEATURE_VERSION=1`、15 维；
-- 动作：相对 LOS 偏移、速度、偏航角速率；
-- Actor：GRU；
-- 评估：`eval_gym`；
-- 导出：`export.py`；
-- C++ 对齐：由 `tests/test_geometry.py` 锁定。
-
-## 全端到端
-
-状态：工程链路完成，正式训练与高保真验证待执行。
-
-### 可观测动作接口
-
-纯图像不能确定全局 NED yaw，因此 Actor 不直接回归全局北/东速度，而是输出：
+高保真训练后端迁移为 Gazebo Harmonic 8、PX4 SITL 和 ROS 2 Humble。工程复用 PX4
+现有 `x500_depth/OakD-Lite` 与 `x500` 资产，以及只读 `ros2_ws` 中的目标运动 C++
+可执行程序。旧二维训练路径继续保留用于快速回归。
 
 ```text
-[机头前向速度, 机头右向速度, Down 速度, 偏航角速率]
+Gazebo camera -> full-frame letterbox -> RGB Actor -> body velocity/yaw rate
+                                                    -> PX4 offboard -> physics
+PX4 odometry -> privileged Critic and labels only during training
 ```
 
-部署适配层使用飞控当前 yaw 做确定性 body→NED 旋转。该变换不需要 bbox、LOS、检测器或目标真值，因而仍满足完整像素到制导决策的定义，同时避免要求网络猜测不可观测的全球坐标朝向。
-
-### 模型
-
-```text
-完整 RGB 前一帧 ─┐
-                  ├→ 共享轻量 CNN → 空间注意力 → Transformer → 融合特征
-完整 RGB 当前帧 ─┘                                      │
-                         ┌───────────────────────────────┼──────────────┐
-                         ↓                               ↓              ↓
-                  直接速度动作头                  未来位置预测     风险/置信度
-```
-
-辅助头使用仿真标签训练，部署端不需要标签。注意力图随模型一起导出，供 Gazebo/实机审查模型关注区域。
-
-### 训练
-
-1. PNG 专家在共享仿真内核闭环运行，动作转换为新的机体系直接速度协议；
-2. 数据按 episode 分片，训练/验证按 episode 隔离；
-3. BC 联合优化动作、未来位置、碰撞风险和置信度；
-4. PPO 使用非对称 Critic 和正确的 tanh-Gaussian 概率；
-5. PPO 继续施加低权重辅助损失，降低视觉表征漂移；
-6. 正式比较 PNG、学习制导和全端到端策略，而不是仅报告训练 reward。
-
-### 安全
-
-- 动作三维速度按向量模长硬限幅；
-- NaN/Inf 立即请求回退；
-- 低视觉置信度请求回退；
-- 输出碰撞风险供状态机使用；
-- 外部状态机保留悬停/PNG/返航选择权；
-- 所有真机测试必须先通过 Gazebo 回放和硬件在环。
-
-## 已完成的工程里程碑
+## 实现状态
 
 | 里程碑 | 状态 |
 |---|---|
-| 学习制导代码与 CLI | 完成 |
-| 两条工作流共享拦截物理内核 | 完成 |
-| 全帧域随机化渲染 | 完成 |
-| Detector-free 直接动作协议 | 完成 |
-| Siamese CNN + Transformer + 多任务头 | 完成 |
-| episode 分片数据采集和 BC | 完成 |
-| 图像 PPO 与非对称 Critic | 完成 |
-| PNG/全端到端评估、注意力图 | 完成 |
-| TorchScript + 元数据 + watchdog runtime | 完成 |
-| 单元测试和端到端冒烟 | 完成 |
-| 正式 1000 episode BC 数据生成 | 待执行 |
-| 正式 1M+ step PPO 收敛实验 | 待执行 |
-| Gazebo 高保真视觉回放 | 待执行 |
-| ROS2/PX4 全端到端节点接入 | 待执行 |
-| 实机数据微调与 A/B | 待执行 |
+| 移除旧高保真后端包、配置、测试和专用文档 | 完成 |
+| ROS Python 3.10 与 Conda Python 3.12 进程隔离 | 完成 |
+| 1920×1080 完整 RGB 到 640×640 letterbox 协议 | 完成 |
+| PX4 body FRD 动作到 NED 限幅和 offboard 桥 | 完成 |
+| 15 维非对称 Critic 与辅助标签 | 完成 |
+| PBR 写实公园、官方 Fuel 植被、双机 launcher | 真实验收完成 |
+| OakD 光轴 `-π/2` 校准、reset 物理 look-at、目标真实入镜 | 完成 |
+| CUDA PPO、checkpoint 保存/恢复、评估入口 | 512-step 与恢复验收完成 |
+| 所有普通回归测试 | 53 项通过 |
+| 多 Gazebo 实例并行 rollout | 接口已定义，隔离 launcher 待实现 |
+| 材质、光照、相机和动力学域随机化 | 待实现 |
+| 1M+ step、多 seed 收敛实验 | 待执行 |
 
-## 下一步验收门槛
+## 下一阶段门槛
 
-### Gate A：轻量环境收敛
+1. 为并行训练分配独立 Gazebo partition、`ROS_DOMAIN_ID`、Micro XRCE UDP 端口、
+   PX4 instance/rootfs 和 Unix socket，再验证 2 个实例；不共享相机缓冲区。
+2. 在不修改现有 C++ 的前提下增加可配置 target supervisor，补齐
+   `hover_escape` 和逐 episode `mixed`。
+3. 加入公园布局、材质、光照、曝光、噪声、控制延迟、质量和惯性随机化。
+4. 完成多 seed 正式训练；实机阶段必须保留 watchdog、人工接管、地理围栏和 PX4
+   failsafe，禁止把目标真值反馈给 Actor。
 
-- 固定 seed、每种运动模式至少 200 episode；
-- 全端到端总命中率不能低于学习制导；
-- `circle` 和 `random_walk` 至少一个模式较 PNG 提升 10 个百分点；
-- 低置信度比例、动作饱和率和注意力图均需报告；
-- 至少 3 个训练 seed，报告均值和标准差。
-
-### Gate B：Gazebo sim-to-sim
-
-- 使用真实相机话题的完整画面，不允许根据检测框裁剪；
-- 校准图像时间戳、控制周期和动力学响应；
-- 逐帧记录动作、置信度、风险、注意力和 fallback 原因；
-- 与相同初始条件下的学习制导/PNG 做配对实验；
-- 若低置信度或域差距显著，先增加真实/Gazebo 图像再训练，不进入真机。
-
-### Gate C：受控实机
-
-- 先台架推理延迟和 watchdog 故障注入；
-- 再系留/安全网低速目标；
-- 最后才允许机动目标；
-- 两条工作流均保留人工接管、地理围栏和 PX4 failsafe；
-- 实机结果不得用 GPS/目标真值反馈给 Actor。
-
-## 长期工作
-
-- 用 Isaac Lab/Aerial Gym 或 Gazebo Harmonic 替换快速 2D 渲染，同时保持 `EndToEndInterceptEnv` 接口；
-- 以 Gazebo 和 OAK-D Lite 真实视频做 DAgger/离线微调；
-- 将未来位置辅助头升级为带不确定度的多步轨迹预测；
-- 将 TorchScript 部署迁移到 `torch.export`、ONNX/TensorRT 或 ExecuTorch；
-- 对亮度、遮挡、运动模糊、目标尺寸和相机延迟做系统消融；
-- 建立注意力失效、低置信度、速度饱和和域外图像的自动回归集。
-
-具体命令、数据格式和目录说明见 [README.md](README.md)。
+运行方式见 [Gazebo 训练指南](docs/gazebo_training.md)。
