@@ -85,6 +85,7 @@ def test_gazebo_overlay_preserves_legacy_and_sets_actor_contract():
     assert cfg.end_to_end.render.channel_order == "RGB"
     assert cfg.end_to_end.render.transform == "full_frame_letterbox_v1"
     assert cfg.end_to_end.model.encoder_chunk_size == 4
+    assert cfg.gazebo.target.initial_model_separation_m == 10.0
 
 
 def test_camera_letterbox_preserves_full_16_by_9_frame():
@@ -146,6 +147,8 @@ def test_environment_reset_uses_two_new_frames_and_actor_gets_only_rgb():
     assert not np.array_equal(frames[0], frames[1])
     assert training["critic_obs"].shape == (CRITIC_DIM,)
     assert info["backend"] == "gazebo_px4"
+    assert info["target_distance_m"] == pytest.approx(10.0)
+    assert info["requested_target_distance_m"] == pytest.approx(10.0)
     next_frames, reward, terminated, truncated, training, _ = environment.step(
         np.zeros(4, dtype=np.float32)
     )

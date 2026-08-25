@@ -4,7 +4,8 @@ __pycache__/
 data/
 checkpoints/
 runs/
-results/
+results/*
+!results/gazebo_camera_30m.png
 export/
 .pytest_cache/
 .idea/

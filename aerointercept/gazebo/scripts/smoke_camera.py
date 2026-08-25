@@ -24,7 +24,7 @@ def main():
     parser.add_argument("--warmup-seconds", type=float, default=3.0)
     parser.add_argument("--interval-seconds", type=float, default=0.25)
     parser.add_argument(
-        "--visual-max-distance", type=float, default=12.0,
+        "--visual-max-distance", type=float, default=35.0,
         help="wait for the moving target to be close enough for visual inspection; <=0 disables",
     )
     parser.add_argument("--output", default=None)
@@ -66,6 +66,9 @@ def main():
             target_position = np.asarray(
                 alignment_snapshot["target_position"], dtype=np.float64
             )
+            target_distance = float(np.linalg.norm(
+                target_position - interceptor_position
+            ))
             target_status = alignment_snapshot.get("target_vehicle_status")
             target_ready = (
                 -float(target_position[2]) >= float(cfg.gazebo.task.target_minimum_altitude)
@@ -84,13 +87,16 @@ def main():
             )
             visual_distance_ready = (
                 args.visual_max_distance <= 0.0
-                or np.linalg.norm(target_position - interceptor_position)
-                <= args.visual_max_distance
+                or target_distance <= args.visual_max_distance
             )
+            reset_distance_ready = abs(
+                target_distance - float(cfg.gazebo.task.reset_target_distance_m)
+            ) <= float(cfg.gazebo.task.reset_target_distance_tolerance_m)
             if (
                 target_ready
                 and interceptor_ready
                 and visual_distance_ready
+                and reset_distance_ready
                 and abs(yaw_error) <= float(cfg.gazebo.task.reset_yaw_tolerance_rad)
             ):
                 break

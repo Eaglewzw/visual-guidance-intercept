@@ -115,3 +115,35 @@ partition、ROS domain、Micro XRCE 端口和 PX4 进程。当前自动 launcher
 
 恢复测试从 global step 512 正确继续到 528，并重新保存 optimizer、RNG、last 和周期
 checkpoint。随机初始化仅训练 512 步的 hit rate 为 0，不应作为收敛结果引用。
+
+## 回归测试
+
+```bash
+source /opt/anaconda3/etc/profile.d/conda.sh
+conda activate AeroIntercept
+cd /home/verser/Python/AeroIntercept
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q
+```
+
+普通回归测试覆盖模型协议、旧环境和无需启动 Gazebo 的任务逻辑。真实物理链路仍需
+使用本文前面的 camera smoke、environment smoke 和 CUDA PPO 冒烟命令验收。
+
+## 保留的轻量工作流
+
+轻量二维环境继续用于快速数据采集、行为克隆和算法回归，不代替 Gazebo 高保真验收：
+
+```bash
+python -m aerointercept.training.collect_e2e_data \
+  --episodes 1000 --out data/e2e_bc
+
+python -m aerointercept.training.train_e2e_bc \
+  --data data/e2e_bc --out checkpoints/e2e_bc.pt
+
+python -m aerointercept.training.train_e2e_ppo \
+  --bc-init checkpoints/e2e_bc.pt \
+  --out checkpoints/e2e_rl.pt --logdir runs/e2e_ppo
+
+python -m aerointercept.evaluation.eval_e2e \
+  --policy checkpoints/e2e_rl.pt --episodes 200 \
+  --out results/e2e_rl.csv
+```

@@ -3,6 +3,13 @@
 gazebo:
   backend: gazebo_harmonic_px4_sitl
   world: aerointercept_park
+  target:
+    spawn_position_world: [10.0, 0.0, 0.0]
+    origin_ned: [10.0, 0.0, 0.0]
+    initial_model_separation_m: 10.0
+    # The read-only C++ circle controller uses a fixed 5 m orbit, so physical
+    # separation during circle motion varies approximately from 5 to 15 m.
+    circle_separation_range_m: [5.0, 15.0]
   scene:
     preset: realistic_park
     local_pbr_surface: true
@@ -40,6 +47,8 @@ gazebo:
     reset_timeout_s: 45.0
     reset_tolerance_m: 0.75
     reset_speed_tolerance: 0.75
+    reset_target_distance_m: 10.0
+    reset_target_distance_tolerance_m: 1.0
     target_minimum_altitude: 4.0
     episode_max_steps: 600
     hit_radius: 0.8

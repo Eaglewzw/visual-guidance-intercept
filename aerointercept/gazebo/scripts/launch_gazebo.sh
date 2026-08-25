@@ -13,6 +13,7 @@ SOCKET_PATH="$RUNTIME_DIR/bridge.sock"
 HEADLESS=0
 MODE="circle"
 SEED=0
+TARGET_SPAWN_NORTH_M=10.0
 
 usage() {
   echo "usage: $0 [--headless] [--mode circle|sinusoidal|random_walk|mixed] [--seed N] [--socket PATH]"
@@ -101,7 +102,7 @@ sleep 8
 (
   cd "$PX4_ROOT"
   exec env PX4_GZ_STANDALONE=1 PX4_GZ_WORLD=aerointercept_park \
-    PX4_SYS_AUTOSTART=4001 PX4_GZ_MODEL_POSE="10,0,0" PX4_SIM_MODEL=gz_x500 \
+    PX4_SYS_AUTOSTART=4001 PX4_GZ_MODEL_POSE="$TARGET_SPAWN_NORTH_M,0,0" PX4_SIM_MODEL=gz_x500 \
     ./build/px4_sitl_default/bin/px4 -d -i 2
 ) >"$RUNTIME_DIR/px4_target.log" 2>&1 &
 PIDS+=("$!")
@@ -119,7 +120,7 @@ PIDS+=("$!")
 
 /usr/bin/python3 "$PROJECT_ROOT/aerointercept/gazebo/ros_bridge.py" \
   --socket "$SOCKET_PATH" --image-topic /camera/image \
-  --target-origin-ned 10 0 0 --reset-position-ned 0 0 -6 \
+  --target-origin-ned "$TARGET_SPAWN_NORTH_M" 0 0 --reset-position-ned 0 0 -6 \
   --camera-mount-yaw-offset -1.5707963267948966 \
   >"$RUNTIME_DIR/training_bridge.log" 2>&1 &
 PIDS+=("$!")
@@ -127,6 +128,7 @@ PIDS+=("$!")
 echo "[AeroIntercept] Gazebo park started; waiting for camera and both PX4 odometry streams."
 echo "[AeroIntercept] socket: $SOCKET_PATH"
 echo "[AeroIntercept] target C++ mode: $MODE"
+echo "[AeroIntercept] initial model separation: ${TARGET_SPAWN_NORTH_M} m"
 echo "[AeroIntercept] reset controller: physical hover + camera look-at-target yaw"
 echo "[AeroIntercept] Ctrl+C stops only this launcher's child processes."
 wait

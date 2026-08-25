@@ -75,6 +75,9 @@ NavSat system。场景使用项目内照片风格 PBR 草地/碎石材质、写�
 草坪，避免植被长期遮挡小目标。双机仍由 PX4 自己从官方本地模型目录生成：
 拦截机 `gz_x500_depth`，目标机 `gz_x500`；没有创建替代无人机或相机模型。
 
-目标模型在 Gazebo 的 `(10,0,0)` 生成。PX4 当前 Gazebo bridge 的模型生成坐标与
-local position 实测按 x→north、y→east 对齐，因此共同 NED 原点偏移为 `(10,0,0)`。
+目标模型在 Gazebo 的 `(10,0,0)` 生成，两机模型初始间距为 10m。PX4 当前 Gazebo
+bridge 的模型生成坐标与 local position 实测按 x→north、y→east 对齐，因此共同
+NED 原点偏移为 `(10,0,0)`。episode reset 不瞬移目标，而是等待两机实际物理距离
+进入 `10±1m` 后再返回双帧观测。只读 C++ circle 控制器使用固定 5m 半径，rollout
+开始后距离仍会随目标运动变化。
 桥在构造两机物理距离时显式补偿该偏移，并另行应用前述相机安装 yaw 偏差。

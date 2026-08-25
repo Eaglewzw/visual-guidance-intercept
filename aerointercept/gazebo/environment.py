@@ -115,6 +115,7 @@ class GazeboInterceptEnv:
         snapshot = None
         last_position = None
         last_velocity = None
+        last_target_distance = None
         while time.monotonic() < deadline:
             snapshot = self.client.snapshot(sequence, timeout=2.0)
             sequence = int(snapshot["sequence"])
@@ -123,6 +124,8 @@ class GazeboInterceptEnv:
             last_position = position
             last_velocity = velocity
             target_position = np.asarray(snapshot["target_position"], dtype=np.float64)
+            target_distance = float(np.linalg.norm(target_position - position))
+            last_target_distance = target_distance
             target_status = snapshot.get("target_vehicle_status")
             _, desired_yaw, yaw_error = camera_target_yaw_geometry(
                 position, target_position, float(snapshot["interceptor_yaw"]),
@@ -138,6 +141,9 @@ class GazeboInterceptEnv:
             if (
                 np.linalg.norm(position - home) <= float(self.task_cfg.reset_tolerance_m)
                 and np.linalg.norm(velocity) <= float(self.task_cfg.reset_speed_tolerance)
+                and abs(
+                    target_distance - float(self.task_cfg.reset_target_distance_m)
+                ) <= float(self.task_cfg.reset_target_distance_tolerance_m)
                 and target_ready
                 and (
                     not look_at_target
@@ -151,6 +157,7 @@ class GazeboInterceptEnv:
                 f"last_position={last_position} last_velocity={last_velocity} "
                 f"status={None if snapshot is None else snapshot.get('vehicle_status')} "
                 f"target={None if snapshot is None else snapshot.get('target_position')} "
+                f"target_distance={last_target_distance} "
                 f"camera_target_yaw_error={None if snapshot is None else snapshot.get('camera_target_yaw_error')} "
                 f"target_status={None if snapshot is None else snapshot.get('target_vehicle_status')}"
             )
@@ -174,6 +181,10 @@ class GazeboInterceptEnv:
             "interceptor_yaw_rad": float(second_snapshot["interceptor_yaw"]),
             "camera_target_yaw_error_rad": float(
                 second_snapshot.get("camera_target_yaw_error", yaw_error)
+            ),
+            "target_distance_m": float(metrics["distance"]),
+            "requested_target_distance_m": float(
+                self.task_cfg.reset_target_distance_m
             ),
         }
 
